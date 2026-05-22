@@ -305,6 +305,73 @@ function topicsToCSV(topics) {
   return 'title,description\n' + topics.map(t => `${esc(t.title)},${esc(t.description || '')}`).join('\n');
 }
 
+// Non-roster header names to skip when parsing classifications CSV
+const NON_ROSTER_COLS = new Set(['?', 'l', 'q', 's', 'forced', 'force', 'override', 'category', 'classification', 'assign', 'topic assign l, q, s', 'topic']);
+
+function parseClassificationsCSV(text, users, topics) {
+  const rows = parseCSV(text);
+  if (rows.length < 2) return { classifications: {}, overrides: {}, matched: 0, skipped: 0, error: 'File needs at least a header row and one data row.' };
+
+  const header = rows[0].map(c => c.trim());
+  const CAT_ABBR = { l: 'lightning', q: 'quick', s: 'spotlight' };
+
+  // Map user names (lowercase) → user object
+  const userByName = {};
+  for (const u of users) userByName[u.name.trim().toLowerCase()] = u;
+
+  // Map topic titles (lowercase) → topic object
+  const topicByTitle = {};
+  for (const t of topics) topicByTitle[t.title.trim().toLowerCase()] = t;
+
+  // Classify each column: 'forced', {type:'user', userId}, or null (skip)
+  const colRoles = header.map((h, i) => {
+    if (i === 0) return null; // topic title column
+    const hl = h.toLowerCase();
+    if (hl === 'forced' || hl === 'force' || hl === 'override') return 'forced';
+    if (NON_ROSTER_COLS.has(hl)) return null;
+    const u = userByName[hl];
+    return u ? { userId: u.id } : null;
+  });
+
+  const classifications = {};
+  const overrides = {};
+  let matched = 0, skipped = 0;
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const title = (row[0] || '').trim();
+    if (!title) { skipped++; continue; }
+
+    const topic = topicByTitle[title.toLowerCase()];
+    if (!topic) { skipped++; continue; }
+
+    matched++;
+    if (!classifications[topic.id]) classifications[topic.id] = {};
+
+    for (let j = 1; j < row.length; j++) {
+      const role = colRoles[j];
+      if (!role) continue;
+      const val = (row[j] || '').trim().toLowerCase();
+      const cat = CAT_ABBR[val];
+      if (!cat) continue;
+      if (role === 'forced') {
+        overrides[topic.id] = cat;
+      } else {
+        classifications[topic.id][role.userId] = cat;
+      }
+    }
+  }
+
+  return {
+    classifications,
+    overrides,
+    matched,
+    skipped,
+    error: matched === 0 ? 'No topic titles matched the loaded topics. Check that topic titles are identical.' : null,
+  };
+}
+
+window.parseClassificationsCSV = parseClassificationsCSV;
 window.STORAGE_KEY = STORAGE_KEY;
 window.CATEGORIES = CATEGORIES;
 window.CAT_BY_ID = CAT_BY_ID;

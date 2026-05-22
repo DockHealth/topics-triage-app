@@ -842,8 +842,9 @@ function CSVDropZone({ onText, accept, label, hint }) {
 }
 
 function StepConfig({ state, setState, toast }) {
-  const [usersPreview, setUsersPreview] = useState(null); // {users, skipped, error, filename}
+  const [usersPreview, setUsersPreview] = useState(null);
   const [topicsPreview, setTopicsPreview] = useState(null);
+  const [clsPreview, setClsPreview] = useState(null); // {classifications, overrides, matched, skipped, error}
 
   const onUsersFile = (text, filename) => {
     const res = parseUsersCSV(text);
@@ -853,6 +854,15 @@ function StepConfig({ state, setState, toast }) {
   const onTopicsFile = (text, filename) => {
     const res = parseTopicsCSV(text);
     setTopicsPreview({ ...res, filename });
+    if (res.error) toast(res.error);
+  };
+  const onClsFile = (text, filename) => {
+    if (!state.users.length || !state.topics.length) {
+      toast('Load users and topics first before importing classifications.');
+      return;
+    }
+    const res = parseClassificationsCSV(text, state.users, state.topics);
+    setClsPreview({ ...res, filename });
     if (res.error) toast(res.error);
   };
 
@@ -889,6 +899,24 @@ function StepConfig({ state, setState, toast }) {
     }));
     toast(`Loaded ${topicsPreview.topics.length} topic${topicsPreview.topics.length === 1 ? '' : 's'}`);
     setTopicsPreview(null);
+  };
+
+  const applyClassifications = () => {
+    if (!clsPreview || clsPreview.matched === 0) return;
+    setState(s => ({
+      ...s,
+      classifications: { ...s.classifications, ...clsPreview.classifications },
+      overrides: { ...s.overrides, ...clsPreview.overrides },
+    }));
+    const overrideCount = Object.keys(clsPreview.overrides).length;
+    toast(`Imported classifications for ${clsPreview.matched} topic${clsPreview.matched === 1 ? '' : 's'}${overrideCount ? ` + ${overrideCount} override${overrideCount === 1 ? '' : 's'}` : ''}`);
+    setClsPreview(null);
+  };
+
+  const clearClassifications = () => {
+    if (!confirm('Clear all classifications and overrides?')) return;
+    setState(s => ({ ...s, classifications: {}, overrides: {} }));
+    toast('Classifications cleared');
   };
 
   const loadPredefinedUsers = () => {
@@ -1107,6 +1135,118 @@ function StepConfig({ state, setState, toast }) {
         </div>
       </div>
 
+      {/* CLASSIFICATIONS */}
+      <div className="config-block">
+        <div className="config-block-head">
+          <div>
+            <h3>Classifications</h3>
+            <div className="config-sub">
+              Pre-load per-user classifications from a spreadsheet export. Column 1 is the topic title; remaining columns are roster member names (L / Q / S). A <span className="mono">Forced</span> column sets the override. Columns like <span className="mono">?</span>, <span className="mono">L</span>, <span className="mono">Q</span>, <span className="mono">S</span> are ignored automatically.
+            </div>
+          </div>
+          <div className="config-block-stats">
+            <span className="serif" style={{ fontSize: 32, lineHeight: 1 }}>
+              {Object.values(state.classifications).reduce((n, m) => n + Object.keys(m).length, 0)}
+            </span>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>entries</span>
+          </div>
+        </div>
+
+        {(state.users.length === 0 || state.topics.length === 0) && (
+          <div style={{ marginBottom: 14, padding: '10px 14px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)', fontSize: 13, color: 'var(--ink-3)', border: '1px solid var(--line)' }}>
+            Load users and topics first — topic titles in the CSV are matched against the loaded topic list.
+          </div>
+        )}
+
+        <div className="config-grid">
+          <div>
+            <CSVDropZone
+              onText={onClsFile}
+              label="Upload classifications.csv"
+              hint="Drag a CSV here or click to browse"
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              {Object.keys(state.classifications).length > 0 && (
+                <button className="btn ghost danger" onClick={clearClassifications}>Clear classifications</button>
+              )}
+            </div>
+          </div>
+
+          <div className="config-preview">
+            {clsPreview && clsPreview.matched > 0 ? (
+              <>
+                <div className="preview-head">
+                  <span className="mono" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--ink-3)' }}>
+                    Preview · {clsPreview.matched} topic{clsPreview.matched === 1 ? '' : 's'} matched
+                    {clsPreview.skipped > 0 ? ` · ${clsPreview.skipped} skipped` : ''}
+                    {Object.keys(clsPreview.overrides).length > 0 ? ` · ${Object.keys(clsPreview.overrides).length} override${Object.keys(clsPreview.overrides).length === 1 ? '' : 's'}` : ''}
+                  </span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn ghost" onClick={() => setClsPreview(null)}>Cancel</button>
+                    <button className="btn accent" onClick={applyClassifications}>Apply (merges)</button>
+                  </div>
+                </div>
+                <ol className="preview-list">
+                  {state.topics.filter(t => clsPreview.classifications[t.id]).slice(0, 10).map(t => {
+                    const userCls = clsPreview.classifications[t.id] || {};
+                    const count = Object.keys(userCls).length;
+                    const ovr = clsPreview.overrides[t.id];
+                    const CAT_LABEL = { lightning: '⚡ L', quick: '◉ Q', spotlight: '✦ S' };
+                    return (
+                      <li key={t.id}>
+                        <b>{t.title}</b>
+                        <span style={{ color: 'var(--ink-3)', marginLeft: 6, fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+                          {count} vote{count === 1 ? '' : 's'}
+                          {ovr ? <span style={{ marginLeft: 6, color: 'var(--accent-ink)' }}>forced→{CAT_LABEL[ovr]}</span> : null}
+                        </span>
+                      </li>
+                    );
+                  })}
+                  {clsPreview.matched > 10 && (
+                    <li style={{ color: 'var(--ink-3)' }}>+{clsPreview.matched - 10} more…</li>
+                  )}
+                </ol>
+              </>
+            ) : Object.keys(state.classifications).length > 0 ? (
+              <>
+                <div className="preview-head">
+                  <span className="mono" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--ink-3)' }}>
+                    Current classifications
+                  </span>
+                </div>
+                <ol className="preview-list">
+                  {state.topics.filter(t => state.classifications[t.id] && Object.keys(state.classifications[t.id]).length > 0).slice(0, 10).map(t => {
+                    const m = state.classifications[t.id];
+                    const counts = { lightning: 0, quick: 0, spotlight: 0 };
+                    for (const v of Object.values(m)) if (counts[v] !== undefined) counts[v]++;
+                    const parts = [];
+                    if (counts.lightning) parts.push(`⚡ ${counts.lightning}`);
+                    if (counts.quick) parts.push(`◉ ${counts.quick}`);
+                    if (counts.spotlight) parts.push(`✦ ${counts.spotlight}`);
+                    return (
+                      <li key={t.id}>
+                        <b>{t.title}</b>
+                        <span style={{ color: 'var(--ink-3)', marginLeft: 6, fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+                          {parts.join('  ')}
+                          {state.overrides[t.id] ? <span style={{ marginLeft: 6, color: 'var(--accent-ink)' }}>override</span> : null}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </>
+            ) : (
+              <div className="preview-empty">
+                <span className="serif" style={{ fontSize: 20 }}>No classifications loaded.</span>
+                <div style={{ color: 'var(--ink-3)', fontSize: 13, marginTop: 4 }}>
+                  Upload a CSV to pre-fill the Classify step, or classify manually in Step 2.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="config-format-note">
         <h4>CSV format reference</h4>
         <div className="format-grid">
@@ -1124,6 +1264,13 @@ Q3 roadmap,"Where we landed, what shifted"
 On-call rotation,Pages per week trending up
 New hire shoutouts,Welcome the three new folks`}</pre>
           </div>
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <div className="format-label">classifications.csv — user names must match the loaded roster exactly</div>
+          <pre className="code-block">{`Topic,Forced,Alex Smith,Sam Jones,Priya Shah
+Q3 roadmap,,S,Q,S
+On-call rotation,Q,L,Q,L
+New hire shoutouts,,L,L,L`}</pre>
         </div>
       </div>
     </div>
