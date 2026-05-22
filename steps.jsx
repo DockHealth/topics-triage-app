@@ -845,6 +845,7 @@ function StepConfig({ state, setState, toast }) {
   const [usersPreview, setUsersPreview] = useState(null);
   const [topicsPreview, setTopicsPreview] = useState(null);
   const [clsPreview, setClsPreview] = useState(null); // {classifications, overrides, matched, skipped, error}
+  const [rankPreview, setRankPreview] = useState(null); // {votes, matched, skipped, error}
 
   const onUsersFile = (text, filename) => {
     const res = parseUsersCSV(text);
@@ -863,6 +864,15 @@ function StepConfig({ state, setState, toast }) {
     }
     const res = parseClassificationsCSV(text, state.users, state.topics);
     setClsPreview({ ...res, filename });
+    if (res.error) toast(res.error);
+  };
+  const onRankFile = (text, filename) => {
+    if (!state.users.length || !state.topics.length) {
+      toast('Load users and topics first before importing rankings.');
+      return;
+    }
+    const res = parseRankingsCSV(text, state.users, state.topics);
+    setRankPreview({ ...res, filename });
     if (res.error) toast(res.error);
   };
 
@@ -917,6 +927,27 @@ function StepConfig({ state, setState, toast }) {
     if (!confirm('Clear all classifications and overrides?')) return;
     setState(s => ({ ...s, classifications: {}, overrides: {} }));
     toast('Classifications cleared');
+  };
+
+  const applyRankings = () => {
+    if (!rankPreview || rankPreview.matched === 0) return;
+    setState(s => {
+      // Merge imported votes into existing; imported 1s win, don't remove existing votes
+      const merged = {};
+      for (const u of s.users) {
+        merged[u.id] = { ...(s.votes[u.id] || {}), ...(rankPreview.votes[u.id] || {}) };
+      }
+      return { ...s, votes: merged };
+    });
+    const totalVotes = Object.values(rankPreview.votes).reduce((n, m) => n + Object.values(m).filter(Boolean).length, 0);
+    toast(`Imported ${totalVotes} vote${totalVotes === 1 ? '' : 's'} across ${rankPreview.matched} topic${rankPreview.matched === 1 ? '' : 's'}`);
+    setRankPreview(null);
+  };
+
+  const clearRankings = () => {
+    if (!confirm('Clear all votes?')) return;
+    setState(s => ({ ...s, votes: Object.fromEntries(s.users.map(u => [u.id, {}])) }));
+    toast('Rankings cleared');
   };
 
   const loadPredefinedUsers = () => {
@@ -1247,6 +1278,110 @@ function StepConfig({ state, setState, toast }) {
         </div>
       </div>
 
+      {/* RANKINGS */}
+      <div className="config-block">
+        <div className="config-block-head">
+          <div>
+            <h3>Rankings</h3>
+            <div className="config-sub">
+              Pre-load votes from a spreadsheet export. Column 1 is the topic title; remaining columns are roster member names. A value of <span className="mono">1</span> means that user voted for that topic. Columns like <span className="mono">Type</span>, <span className="mono">Rank</span>, <span className="mono">Total</span> are ignored automatically.
+            </div>
+          </div>
+          <div className="config-block-stats">
+            <span className="serif" style={{ fontSize: 32, lineHeight: 1 }}>
+              {Object.values(state.votes).reduce((n, m) => n + Object.values(m).filter(Boolean).length, 0)}
+            </span>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>votes</span>
+          </div>
+        </div>
+
+        {(state.users.length === 0 || state.topics.length === 0) && (
+          <div style={{ marginBottom: 14, padding: '10px 14px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)', fontSize: 13, color: 'var(--ink-3)', border: '1px solid var(--line)' }}>
+            Load users and topics first — topic titles in the CSV are matched against the loaded topic list.
+          </div>
+        )}
+
+        <div className="config-grid">
+          <div>
+            <CSVDropZone
+              onText={onRankFile}
+              label="Upload rankings.csv"
+              hint="Drag a CSV here or click to browse"
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              {Object.values(state.votes).some(m => Object.values(m).some(Boolean)) && (
+                <button className="btn ghost danger" onClick={clearRankings}>Clear rankings</button>
+              )}
+            </div>
+          </div>
+
+          <div className="config-preview">
+            {rankPreview && rankPreview.matched > 0 ? (
+              <>
+                <div className="preview-head">
+                  <span className="mono" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--ink-3)' }}>
+                    Preview · {rankPreview.matched} topic{rankPreview.matched === 1 ? '' : 's'} matched
+                    {rankPreview.skipped > 0 ? ` · ${rankPreview.skipped} skipped` : ''}
+                    {' · '}{Object.values(rankPreview.votes).reduce((n, m) => n + Object.values(m).filter(Boolean).length, 0)} total votes
+                  </span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn ghost" onClick={() => setRankPreview(null)}>Cancel</button>
+                    <button className="btn accent" onClick={applyRankings}>Apply (merges)</button>
+                  </div>
+                </div>
+                <ol className="preview-list">
+                  {state.topics.filter(t => {
+                    return Object.values(rankPreview.votes).some(uv => uv[t.id]);
+                  }).slice(0, 10).map(t => {
+                    const count = Object.values(rankPreview.votes).filter(uv => uv[t.id]).length;
+                    const voters = state.users.filter(u => rankPreview.votes[u.id]?.[t.id]);
+                    return (
+                      <li key={t.id}>
+                        <b>{t.title}</b>
+                        <span style={{ color: 'var(--ink-3)', marginLeft: 6, fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+                          {count} vote{count === 1 ? '' : 's'} · {voters.map(u => u.name.split(' ')[0]).join(', ')}
+                        </span>
+                      </li>
+                    );
+                  })}
+                  {rankPreview.matched > 10 && (
+                    <li style={{ color: 'var(--ink-3)' }}>+{rankPreview.matched - 10} more…</li>
+                  )}
+                </ol>
+              </>
+            ) : Object.values(state.votes).some(m => Object.values(m).some(Boolean)) ? (
+              <>
+                <div className="preview-head">
+                  <span className="mono" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--ink-3)' }}>
+                    Current rankings
+                  </span>
+                </div>
+                <ol className="preview-list">
+                  {state.topics.filter(t => Object.values(state.votes).some(uv => uv[t.id])).slice(0, 10).map(t => {
+                    const count = Object.values(state.votes).filter(uv => uv[t.id]).length;
+                    return (
+                      <li key={t.id}>
+                        <b>{t.title}</b>
+                        <span style={{ color: 'var(--ink-3)', marginLeft: 6, fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+                          {count} vote{count === 1 ? '' : 's'}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </>
+            ) : (
+              <div className="preview-empty">
+                <span className="serif" style={{ fontSize: 20 }}>No rankings loaded.</span>
+                <div style={{ color: 'var(--ink-3)', fontSize: 13, marginTop: 4 }}>
+                  Upload a CSV to pre-fill the Rank step, or vote manually in Step 4.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="config-format-note">
         <h4>CSV format reference</h4>
         <div className="format-grid">
@@ -1271,6 +1406,13 @@ New hire shoutouts,Welcome the three new folks`}</pre>
 Q3 roadmap,,S,Q,S
 On-call rotation,Q,L,Q,L
 New hire shoutouts,,L,L,L`}</pre>
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <div className="format-label">rankings.csv — 1 = voted, blank = not voted; Type/Rank/Total columns are skipped</div>
+          <pre className="code-block">{`Topic,Type,Rank,Alex Smith,Sam Jones,Priya Shah
+Q3 roadmap,S,22,1,,1
+On-call rotation,L,18,,1,1
+New hire shoutouts,L,9,1,1,`}</pre>
         </div>
       </div>
     </div>

@@ -371,7 +371,80 @@ function parseClassificationsCSV(text, users, topics) {
   };
 }
 
+// Non-roster header names to skip when parsing rankings CSV
+const NON_ROSTER_RANK_COLS = new Set(['type', 'rank', 'total', 'votes', 'count', 'score', 'category', 'classification', 'topic']);
+
+function parseRankingsCSV(text, users, topics) {
+  const rows = parseCSV(text);
+  if (rows.length < 2) return { votes: {}, matched: 0, skipped: 0, overBudget: [], error: 'File needs at least a header row and one data row.' };
+
+  const header = rows[0].map(c => c.trim());
+
+  const userByName = {};
+  for (const u of users) userByName[u.name.trim().toLowerCase()] = u;
+
+  const topicByTitle = {};
+  for (const t of topics) topicByTitle[t.title.trim().toLowerCase()] = t;
+
+  // Identify user columns; skip known non-roster columns
+  const colRoles = header.map((h, i) => {
+    if (i === 0) return null;
+    const hl = h.toLowerCase();
+    if (NON_ROSTER_RANK_COLS.has(hl)) return null;
+    const u = userByName[hl];
+    return u ? { userId: u.id } : null;
+  });
+
+  // votes[userId][topicId] = true
+  const votes = {};
+  for (const u of users) votes[u.id] = {};
+
+  let matched = 0, skipped = 0;
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const title = (row[0] || '').trim();
+    if (!title) { skipped++; continue; }
+
+    const topic = topicByTitle[title.toLowerCase()];
+    if (!topic) { skipped++; continue; }
+
+    matched++;
+    for (let j = 1; j < row.length; j++) {
+      const role = colRoles[j];
+      if (!role) continue;
+      const val = (row[j] || '').trim();
+      if (val === '1' || val.toLowerCase() === 'true' || val.toLowerCase() === 'yes' || val.toLowerCase() === 'x') {
+        votes[role.userId][topic.id] = true;
+      }
+    }
+  }
+
+  // Warn about per-user budget overruns (informational — we still import)
+  // We need a minimal effectiveCategory snapshot; reuse global helpers if available
+  const overBudget = [];
+  for (const u of users) {
+    const used = { lightning: 0, quick: 0, spotlight: 0 };
+    for (const [tid, v] of Object.entries(votes[u.id])) {
+      if (!v) continue;
+      const topic = topics.find(t => t.id === tid);
+      if (!topic) continue;
+      // We don't have full state here so we can't call effectiveCategory — skip budget check;
+      // the UI will show correct remaining budget when the user opens Step 4.
+    }
+  }
+
+  return {
+    votes,
+    matched,
+    skipped,
+    overBudget,
+    error: matched === 0 ? 'No topic titles matched the loaded topics. Check that topic titles are identical.' : null,
+  };
+}
+
 window.parseClassificationsCSV = parseClassificationsCSV;
+window.parseRankingsCSV = parseRankingsCSV;
 window.STORAGE_KEY = STORAGE_KEY;
 window.CATEGORIES = CATEGORIES;
 window.CAT_BY_ID = CAT_BY_ID;
