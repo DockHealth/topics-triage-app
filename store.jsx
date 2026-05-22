@@ -130,10 +130,11 @@ function topicsByCategory(state) {
 function userVoteCounts(state, userId) {
   const votes = state.votes[userId] || {};
   const counts = { lightning: 0, quick: 0, spotlight: 0 };
-  for (const topicId of Object.keys(votes)) {
-    if (!votes[topicId]) continue;
+  for (const [topicId, v] of Object.entries(votes)) {
+    const n = typeof v === 'number' ? v : (v ? 1 : 0);
+    if (!n) continue;
     const c = effectiveCategory(state, topicId);
-    if (c && counts[c] !== undefined) counts[c]++;
+    if (c && counts[c] !== undefined) counts[c] += n;
   }
   return counts;
 }
@@ -142,7 +143,9 @@ function topicVoteCount(state, topicId) {
   let n = 0;
   const voters = [];
   for (const u of state.users) {
-    if (state.votes[u.id]?.[topicId]) { n++; voters.push(u); }
+    const v = state.votes[u.id]?.[topicId];
+    const count = typeof v === 'number' ? v : (v ? 1 : 0);
+    if (count > 0) { n += count; voters.push(u); }
   }
   return { count: n, voters };
 }
@@ -220,7 +223,7 @@ function seedSampleVotes(state) {
     const limit = CAT_BY_ID[cat].votesPerUser;
     for (const uid of users) {
       if (used[uid][cat] >= limit) continue; // defensive clamp
-      votes[uid][tid] = true;
+      votes[uid][tid] = 1;
       used[uid][cat]++;
     }
   }
@@ -414,8 +417,11 @@ function parseRankingsCSV(text, users, topics) {
       const role = colRoles[j];
       if (!role) continue;
       const val = (row[j] || '').trim();
-      if (val === '1' || val.toLowerCase() === 'true' || val.toLowerCase() === 'yes' || val.toLowerCase() === 'x') {
-        votes[role.userId][topic.id] = true;
+      const num = parseInt(val, 10);
+      if (!isNaN(num) && num > 0) {
+        votes[role.userId][topic.id] = num;
+      } else if (val.toLowerCase() === 'true' || val.toLowerCase() === 'yes' || val.toLowerCase() === 'x') {
+        votes[role.userId][topic.id] = 1;
       }
     }
   }

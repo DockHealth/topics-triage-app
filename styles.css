@@ -806,16 +806,6 @@ main {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.vote-card .checkbox {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  border: 1.5px solid var(--line-2);
-  background: var(--bg);
-  display: grid;
-  place-items: center;
-  transition: all 0.12s;
-}
 .vote-card.voted {
   background: var(--accent-soft);
   border-color: var(--accent);
@@ -823,15 +813,49 @@ main {
 .vote-card.voted.lightning { background: #FEF3C7; border-color: var(--lit-line); }
 .vote-card.voted.quick { background: #DCFCE7; border-color: var(--quick-line); }
 .vote-card.voted.spotlight { background: #FEE2E2; border-color: var(--spot-line); }
-.vote-card.voted .checkbox {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
-}
 .vote-card.disabled {
   opacity: 0.5;
-  cursor: not-allowed;
 }
+
+/* Vote stepper */
+.vote-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.stepper-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1.5px solid var(--line-2);
+  background: var(--bg);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ink-2);
+  transition: all 0.12s;
+  padding: 0;
+}
+.stepper-btn:hover:not(:disabled) {
+  background: var(--bg-2);
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+.stepper-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+.vote-card.voted .stepper-btn { background: rgba(255,255,255,0.55); }
+.vote-card.voted .stepper-btn:hover:not(:disabled) { background: rgba(255,255,255,0.9); }
+.stepper-count {
+  font-family: 'Instrument Serif', serif;
+  font-size: 26px;
+  line-height: 1;
+  min-width: 28px;
+  text-align: center;
+  color: var(--ink-3);
+}
+.stepper-count.active { color: var(--ink); }
 
 /* ====== STEP 5: ELECTIONS ====== */
 .election-section { margin-bottom: 32px; }

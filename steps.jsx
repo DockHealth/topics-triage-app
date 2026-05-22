@@ -481,20 +481,26 @@ function StepVote({ state, setState, toast }) {
   const groups = useMemo(() => topicsByCategory(state), [state]);
   const counts = userVoteCounts(state, activeId);
 
-  const toggleVote = (topicId) => {
+  const getVoteCount = (topicId) => {
+    const v = state.votes[activeId]?.[topicId];
+    return typeof v === 'number' ? v : (v ? 1 : 0);
+  };
+
+  const adjustVote = (topicId, delta) => {
     const cat = effectiveCategory(state, topicId);
     if (!cat) return;
-    const userVotes = state.votes[activeId] || {};
-    const has = !!userVotes[topicId];
+    const current = getVoteCount(topicId);
+    const newVal = current + delta;
+    if (newVal < 0) return;
     const limit = CAT_BY_ID[cat].votesPerUser;
-    if (!has && counts[cat] >= limit) {
+    if (delta > 0 && counts[cat] >= limit) {
       toast(`No ${CAT_BY_ID[cat].name} votes left — ${limit}/${limit} used.`);
       return;
     }
     setState(s => {
       const uv = { ...(s.votes[activeId] || {}) };
-      if (has) delete uv[topicId];
-      else uv[topicId] = true;
+      if (newVal === 0) delete uv[topicId];
+      else uv[topicId] = newVal;
       return { ...s, votes: { ...s.votes, [activeId]: uv } };
     });
   };
@@ -505,11 +511,11 @@ function StepVote({ state, setState, toast }) {
         <div className="page-head">
           <div>
             <div className="page-eyebrow">Step 4 of 5</div>
-            <h2>Vote for what you want to <em>see</em>.</h2>
+            <h2>Rank what you want to <em>see</em>.</h2>
           </div>
         </div>
         <div className="empty">
-          <span className="serif">Nothing to vote on yet.</span>
+          <span className="serif">Nothing to rank yet.</span>
           <div>Add and classify topics first.</div>
         </div>
       </div>
@@ -521,40 +527,49 @@ function StepVote({ state, setState, toast }) {
     const items = groups[catId];
     const used = counts[catId];
     const limit = cat.votesPerUser;
+    const remaining = limit - used;
     if (items.length === 0) return null;
     return (
       <section key={catId} className="vote-category-block">
         <div className="category-head">
           <h3>{cat.emoji} {cat.name}</h3>
           <span className="count">{items.length} topic{items.length === 1 ? '' : 's'} · {cat.time} each</span>
-          <span className="left">
-            {used}/{limit} votes used
+          <span className="left" style={remaining === 0 ? { color: 'var(--brand-red)', borderColor: 'var(--brand-red)', background: '#FEE2E2' } : {}}>
+            {remaining} of {limit} votes left
           </span>
         </div>
         <div className="vote-grid">
           {items.map(t => {
-            const voted = !!state.votes[activeId]?.[t.id];
-            const disabled = !voted && used >= limit;
+            const voteCount = getVoteCount(t.id);
+            const canAdd = used < limit;
+            const isVoted = voteCount > 0;
             return (
-              <button
+              <div
                 key={t.id}
-                className={"vote-card " + catId + (voted ? ' voted' : '') + (disabled ? ' disabled' : '')}
-                onClick={() => toggleVote(t.id)}
-                disabled={disabled}
-                type="button"
+                className={"vote-card " + catId + (isVoted ? ' voted' : '') + (!canAdd && !isVoted ? ' disabled' : '')}
               >
                 <div>
                   <h4>{t.title}</h4>
                   {t.description && <p>{t.description}</p>}
                 </div>
-                <span className="checkbox">
-                  {voted && (
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                      <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  )}
-                </span>
-              </button>
+                <div className="vote-stepper">
+                  <button
+                    className="stepper-btn"
+                    onClick={() => adjustVote(t.id, -1)}
+                    disabled={voteCount === 0}
+                    type="button"
+                    aria-label="Remove vote"
+                  >−</button>
+                  <span className={"stepper-count" + (isVoted ? ' active' : '')}>{voteCount}</span>
+                  <button
+                    className="stepper-btn"
+                    onClick={() => adjustVote(t.id, +1)}
+                    disabled={!canAdd}
+                    type="button"
+                    aria-label="Add vote"
+                  >+</button>
+                </div>
+              </div>
             );
           })}
         </div>
@@ -567,8 +582,8 @@ function StepVote({ state, setState, toast }) {
       <div className="page-head">
         <div>
           <div className="page-eyebrow">Step 4 of 5</div>
-          <h2>Vote for what you want to <em>see</em>.</h2>
-          <p>Each user picks up to <b>2 Spotlight</b>, <b>5 Quick Hit</b>, and <b>12 Lightning</b> topics. Switch the active user to record everyone's votes.</p>
+          <h2>Rank what you want to <em>see</em>.</h2>
+          <p>Distribute votes across topics — you can give multiple votes to a single topic. Budget: <b>2 Spotlight</b>, <b>5 Quick Hit</b>, <b>12 Lightning</b> per user.</p>
         </div>
       </div>
 
@@ -647,7 +662,10 @@ function StepElections({ state, setState }) {
   const hasAnyTopic = state.topics.length > 0;
   const hasAnyVote = useMemo(() => {
     for (const u of state.users) {
-      if (Object.values(state.votes[u.id] || {}).some(Boolean)) return true;
+      for (const v of Object.values(state.votes[u.id] || {})) {
+        const n = typeof v === 'number' ? v : (v ? 1 : 0);
+        if (n > 0) return true;
+      }
     }
     return false;
   }, [state]);

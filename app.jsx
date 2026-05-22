@@ -24,7 +24,7 @@ function App() {
     // step 3 done when every topic has an effective category
     out[3] = state.topics.length > 0 && state.topics.every(t => !!effectiveCategory(state, t.id));
     // step 4 done when every user used at least one vote
-    out[4] = state.users.every(u => Object.values(state.votes[u.id] || {}).some(Boolean));
+    out[4] = state.users.every(u => Object.values(state.votes[u.id] || {}).some(v => (typeof v === 'number' ? v : (v ? 1 : 0)) > 0));
     out[5] = true;
     return out;
   }, [state]);
@@ -54,7 +54,7 @@ function App() {
       if (state.classifications[t.id]?.[u.id]) classifiedRows++;
     }
     let voters = 0;
-    for (const u of state.users) if (Object.values(state.votes[u.id] || {}).some(Boolean)) voters++;
+    for (const u of state.users) if (Object.values(state.votes[u.id] || {}).some(v => (typeof v === 'number' ? v : (v ? 1 : 0)) > 0)) voters++;
     return { topicCount, classifiedRows, totalRows, voters };
   }, [state]);
 
