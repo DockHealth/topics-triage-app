@@ -13,7 +13,7 @@ const STEPS = [
   { id: 1, label: 'Enter Topics' },
   { id: 2, label: 'Classify' },
   { id: 3, label: 'Summarize' },
-  { id: 4, label: 'Vote' },
+  { id: 4, label: 'Rank' },
   { id: 5, label: 'Elections' },
 ];
 const CONFIG_STEP = { id: 'config', label: 'Configuration' };
